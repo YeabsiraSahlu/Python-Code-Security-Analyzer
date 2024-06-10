@@ -1,0 +1,70 @@
+import os  # Import the os module for interacting with the operating system
+import ast  # Import the ast module for abstract syntax tree manipulation
+
+class SQLInjectionChecker(ast.NodeVisitor):
+    """
+    A class to visit nodes in the AST and check for potential SQL injection vulnerabilities.
+    """
+    def __init__(self):
+        """
+        Initialize the SQLInjectionChecker with an empty list to store vulnerabilities.
+        """
+        self.vulnerabilities = []
+
+    def visit_Call(self, node):
+        """
+        Visit Call nodes in the AST and check for potential SQL injection vulnerabilities.
+        """
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Str):
+            # Check if the node is a function call with a string argument
+            func_name = node.func.attr.lower()
+            if func_name in ['execute', 'executemany', 'executescript']:
+                # Check if the function name is one of the known SQL execution functions
+                query = node.func.value.s.lower()
+                if any(keyword in query for keyword in ['select', 'insert', 'update', 'delete']):
+                    # Check if the query contains any of the SQL keywords
+                    self.vulnerabilities.append((node.lineno, "Potential SQL Injection"))
+        self.generic_visit(node)
+
+def scan_file(file_path):
+    """
+    Scan a single Python file for potential SQL injection vulnerabilities.
+    """
+    with open(file_path, 'r') as file:
+        code = file.read()  # Read the contents of the file
+
+    try:
+        tree = ast.parse(code)  # Parse the code into an abstract syntax tree
+    except SyntaxError as e:
+        print(f"Syntax Error in {file_path}: {e}")  # Handle syntax errors gracefully
+        return
+
+    checker = SQLInjectionChecker()  # Create an instance of the SQLInjectionChecker
+    checker.visit(tree)  # Visit nodes in the AST to check for vulnerabilities
+    return checker.vulnerabilities  # Return the list of vulnerabilities found
+
+def scan_directory(directory):
+    """
+    Recursively scan a directory for Python files and check them for potential SQL injection vulnerabilities.
+    """
+    vulnerabilities = []
+    for root, dirs, files in os.walk(directory):
+        # Traverse the directory tree recursively
+        for file in files:
+            if file.endswith(".py"):
+                # Check if the file has a .py extension
+                file_path = os.path.join(root, file)  # Get the full path of the file
+                vulnerabilities.extend(scan_file(file_path))  # Scan the file for vulnerabilities and extend the list
+    return vulnerabilities  # Return the list of vulnerabilities found
+
+if __name__ == "__main__":
+    directory_path = "project_directory"  # Replace with the path to your project directory
+    vulnerabilities = scan_directory(directory_path)  # Scan the project directory for vulnerabilities
+    if vulnerabilities:
+        # If vulnerabilities are found, print each vulnerability
+        print("Potential vulnerabilities found:")
+        for file_path, line, vulnerability in vulnerabilities:
+            print(f"In {file_path}, line {line}: {vulnerability}")
+    else:
+        # If no vulnerabilities are found, print a message
+        print("No potential vulnerabilities found.")
